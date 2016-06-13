@@ -88,7 +88,16 @@ Promises:
 */
 void UserAppInitialize(void)
 {
+  PWMAudioSetFrequency(BUZZER1, 1000);
+
+  u8 au8GameName[] = "  Avoid the brick!";
+  u8 au8Instructions[] = "Press BUTTON0 start";
+  static u8 UserApp_CursorPosition = LINE2_END_ADDR;
   
+  /* Clear screen and place start messages */
+  LCDCommand(LCD_CLEAR_CMD);
+  LCDMessage(LINE1_START_ADDR, au8GameName); 
+  LCDMessage(LINE2_START_ADDR, au8Instructions); 
   /* If good initialization, set state to Idle */
   if( 1 )
   {
@@ -137,7 +146,88 @@ State Machine Function Definitions
 /* Wait for a message to be queued */
 static void UserAppSM_Idle(void)
 {
-    u8 u8jj=0;
+  static u8 counter0=0;
+  static u8 counter1=0;
+  static u8 flag=FALSE;
+  static u8 flag1=FALSE;
+  static u8 flag2=TRUE;
+  static u8 flag3=FALSE;
+  static u8 DelayTime=500;
+  static u8 UserApp_CursorPosition = LINE2_END_ADDR;
+  if(WasButtonPressed(BUTTON0))
+  {
+    ButtonAcknowledge(BUTTON0);
+    LCDCommand(LCD_CLEAR_CMD); 
+    LCDMessage(LINE2_START_ADDR+2, "8");
+    flag=TRUE;
+    LedOff(RED);
+    PWMAudioOff(BUZZER1);
+    UserApp_CursorPosition=LINE2_END_ADDR;
+    flag1=FALSE;
+    flag2=TRUE;
+    DelayTime=500;
+  }
+  
+  if(flag)
+  {
+    counter0++;
+    if(counter0==DelayTime)
+    {
+      counter0=0;
+      /*Contral the "man" up or down*/
+      LCDCommand(LCD_CLEAR_CMD);
+      if(flag1)
+      {
+        LCDMessage(LINE1_START_ADDR+2, "8"); 
+      }
+      else if(flag2)
+      {
+        LCDMessage(LINE2_START_ADDR+2, "8");
+      }
+      LCDMessage(UserApp_CursorPosition, "0");
+      UserApp_CursorPosition--;
+      if (UserApp_CursorPosition+1 == LINE2_START_ADDR)
+      {
+        
+        if(DelayTime>50)
+        {
+          DelayTime=DelayTime-10;
+        }
+        UserApp_CursorPosition = LINE2_END_ADDR;
+      }
+      
+    }
+    if(WasButtonPressed(BUTTON1))
+    {
+      ButtonAcknowledge(BUTTON1);
+      flag1=TRUE;
+      flag2=FALSE;
+      flag3=FALSE;
+      LCDMessage(LINE1_START_ADDR+2, "8"); 
+    }
+    if(WasButtonPressed(BUTTON2))
+    {
+      ButtonAcknowledge(BUTTON2);
+      flag1=FALSE;
+      flag2=TRUE;
+      flag3=TRUE;
+      LCDMessage(LINE2_START_ADDR+2, "8"); 
+    }
+    
+    if(UserApp_CursorPosition+1==LINE2_START_ADDR+2)
+    {
+      if(flag3)
+      {
+        flag3=FALSE;
+        flag=FALSE;
+        LedOn(RED);
+        PWMAudioOn(BUZZER1);
+        LCDCommand(LCD_CLEAR_CMD);
+        LCDMessage(LINE1_START_ADDR+5, "Game over!"); 
+        LCDMessage(LINE2_START_ADDR, "Press BUTTON0 start");
+      }
+    }
+  }  
 } /* end UserAppSM_Idle() */
      
 
