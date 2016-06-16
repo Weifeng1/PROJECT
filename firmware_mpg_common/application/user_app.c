@@ -52,6 +52,13 @@ extern volatile u32 G_u32ApplicationFlags;             /* From main.c */
 extern volatile u32 G_u32SystemTime1ms;                /* From board-specific source file */
 extern volatile u32 G_u32SystemTime1s;                 /* From board-specific source file */
 
+extern AntSetupDataType G_stAntSetupData;                         /* From ant.c */
+
+extern u32 G_u32AntApiCurrentDataTimeStamp;                       /* From ant_api.c */
+extern AntApplicationMessageType G_eAntApiCurrentMessageClass;    /* From ant_api.c */
+extern u8 G_au8AntApiCurrentData[ANT_APPLICATION_MESSAGE_BYTES];  /* From ant_api.c */
+
+
 
 /***********************************************************************************************************************
 Global variable definitions with scope limited to this local application.
@@ -60,6 +67,8 @@ Variable names shall start with "UserApp_" and be declared as static.
 static fnCode_type UserApp_StateMachine;            /* The state machine function pointer */
 static u32 UserApp_u32Timeout;                      /* Timeout counter used across states */
 
+static u8 UserApp_CursorPosition[5];
+static u8 u8Brickexsit[5];
 
 /**********************************************************************************************************************
 Function Definitions
@@ -88,19 +97,43 @@ Promises:
 */
 void UserAppInitialize(void)
 {
-  PWMAudioSetFrequency(BUZZER1, 1000);
+  
+  /* Configure ANT for this application */
+  G_stAntSetupData.AntChannel          = ANT_CHANNEL_USERAPP;
+  G_stAntSetupData.AntSerialLo         = ANT_SERIAL_LO_USERAPP;
+  G_stAntSetupData.AntSerialHi         = ANT_SERIAL_HI_USERAPP;
+  G_stAntSetupData.AntDeviceType       = ANT_DEVICE_TYPE_USERAPP;
+  G_stAntSetupData.AntTransmissionType = ANT_TRANSMISSION_TYPE_USERAPP;
+  G_stAntSetupData.AntChannelPeriodLo  = ANT_CHANNEL_PERIOD_LO_USERAPP;
+  G_stAntSetupData.AntChannelPeriodHi  = ANT_CHANNEL_PERIOD_HI_USERAPP;
+  G_stAntSetupData.AntFrequency        = ANT_FREQUENCY_USERAPP;
+  G_stAntSetupData.AntTxPower          = ANT_TX_POWER_USERAPP;
 
+  /*Initialize some arrays*/
+  UserApp_CursorPosition[0] = LINE1_END_ADDR;
+  UserApp_CursorPosition[1] = LINE2_END_ADDR-4;
+  UserApp_CursorPosition[2] = LINE1_END_ADDR-8;
+  UserApp_CursorPosition[3] = LINE2_END_ADDR-12;
+  UserApp_CursorPosition[4] = LINE1_END_ADDR-16;
+  u8Brickexsit[0]=1;
+  u8Brickexsit[1]=1;
+  u8Brickexsit[2]=1;
+  u8Brickexsit[3]=1;
+  u8Brickexsit[4]=1;
+  
+  PWMAudioSetFrequency(BUZZER1, 1000);
   u8 au8GameName[] = "  Avoid the brick!";
   u8 au8Instructions[] = "Press BUTTON0 start";
-  static u8 UserApp_CursorPosition = LINE2_END_ADDR;
   
-  /* Clear screen and place start messages */
+  /* Clear screen and display start messages */
   LCDCommand(LCD_CLEAR_CMD);
   LCDMessage(LINE1_START_ADDR, au8GameName); 
   LCDMessage(LINE2_START_ADDR, au8Instructions); 
+  
   /* If good initialization, set state to Idle */
-  if( 1 )
+  if( AntChannelConfig(ANT_MASTER) )
   {
+    AntOpenChannel();
     UserApp_StateMachine = UserAppSM_Idle;
   }
   else
@@ -146,78 +179,62 @@ State Machine Function Definitions
 /* Wait for a message to be queued */
 static void UserAppSM_Idle(void)
 {
+  /*Define some variables*/
+  static u8 au8TestMessage[] = {0, 0, 0, 0, 0xA5, 0, 0, 0};
+  u8 au8DataContent[] = "xxxxxxxxxxxxxxxx";
+  static u8 u8Brick[]=21;
   static u8 counter=0;
   static u16 counter0=0;
   static u8 counter1=0;
   static u8 flag=FALSE;
   static u8 flag1=FALSE;
   static u8 flag2=TRUE;
-  static u8 flag3=FALSE;
+  static u8 flag3=3;
+  static u8 flag4=0;
   static u16 DelayTime;
-  
-  static u8 number[100];
-  static u32 Randomnumber=1;
+  static u32 Randomnumber=2;
   static u32 Midnumber;
-  static u8 counter2=0;
-  static u8 counter3=0;
-  static u8 UserApp_CursorPosition1[100];
-  static u8 UserApp_CursorPosition2[100];
   
-  static u8 BrickLine=0;
-  //
-  static u16 delaytimecounter=0;
-  static u8 u8buzzerrateIndex=0;
-  static u16 u16buzzerrate[]={330,294,262,294,330,330,330,0,
-                              294,294,294,0,
-                              330,392,392,0,
-                              330,294,262,294,330,330,330,0,
-                              330,294,294,330,294,262,0};
-  
-  /*delaytimecounter++;
- 
-  if(delaytimecounter==200)
-  {
-    delaytimecounter=0;
-    u8buzzerrateIndex++;
-
-    PWMAudioSetFrequency(BUZZER1,u16buzzerrate[u8buzzerrateIndex]);
-    PWMAudioOn(BUZZER1);
-
-        
-    if(u8buzzerrateIndex==31)
-    {
-      u8buzzerrateIndex=0;
-    } 
-  }*/
-  //
+  static u8 u8tempi=0;
+  static u8 u8tempj=0;
+  /*Press BUTTON0, start the game and  initialize some flags*/
   if(WasButtonPressed(BUTTON0))
   {
     ButtonAcknowledge(BUTTON0);
     LCDCommand(LCD_CLEAR_CMD); 
-    LCDMessage(LINE2_START_ADDR+2, "8");
-    //flag3=TRUE;
+    LCDMessage(LINE2_START_ADDR+3, "8");
+    flag3=2;
     flag=TRUE;
     LedOff(RED);
     PWMAudioOff(BUZZER1);
     flag1=FALSE;
     flag2=TRUE;
     DelayTime=500;
+    
+    /*Initialize the flag and send it to control the slave's LCD to start the game*/
+    au8TestMessage[6]=1;
+    
+    au8TestMessage[7]=0;
+    flag4=1;
+    LedOff(WHITE);
   }
-  
+  /*If pressed BUTTON0, the game is going*/
   if(flag)
   {
     counter0++;
+    /*Delay a little time*/
     if(counter0==DelayTime)
     {
       counter0=0;
       counter1++;
       counter++;
+      /*Change the speed of moving bricks by decreasing the delay time*/
       if (counter==20)
       {
         counter=0;
         if(DelayTime>50)
         {
-          DelayTime=DelayTime-10;
+          DelayTime=DelayTime-30;
         }
       }
      
@@ -225,97 +242,165 @@ static void UserAppSM_Idle(void)
       LCDCommand(LCD_CLEAR_CMD);
       if(flag1)
       {
-        LCDMessage(LINE1_START_ADDR+2, "8"); 
+        LCDMessage(LINE1_START_ADDR+3, "8"); 
       }
       else if(flag2)
       {
-        LCDMessage(LINE2_START_ADDR+2, "8");
+        LCDMessage(LINE2_START_ADDR+3, "8");
       }
-      if(counter1==3)
+      /*Shot a brick every four spaces*/
+      if(counter1==4)
       {
         counter1=0;
-       
+        
+        /*Create a number randomly*/
         Midnumber=Randomnumber*22695477+1;
-        Randomnumber=(Midnumber/65535)&0x7fff;
-        DebugPrintNumber(Randomnumber);
-        DebugPrintf("  ");
-        /*shot a brick randomly*/
-        if(Randomnumber%2==0)
+        Randomnumber=(Midnumber/65536)&0x7fff;
+         
+      }
+      /*If the brick move to the LCD start address, let it go to the end*/
+      for(u8tempi=0;u8tempi<5;u8tempi++)
+      {
+        if(UserApp_CursorPosition[u8tempi] == LINE1_START_ADDR)
         {
-           
-          BrickLine=1;
-          UserApp_CursorPosition1[counter2]=19;
-          LCDMessage(LINE1_START_ADDR+UserApp_CursorPosition1[counter2], "0");
-          counter2++;
+          UserApp_CursorPosition[u8tempi]=LINE1_END_ADDR;
+          u8Brickexsit[u8tempi]=0; 
         }
-        else if(Randomnumber%2!=0)
+        else if(UserApp_CursorPosition[u8tempi] == LINE2_START_ADDR)
+        {
+          UserApp_CursorPosition[u8tempi]=LINE2_END_ADDR;
+          u8Brickexsit[u8tempi]=0; 
+        }
+        
+      }
+      /*shot a brick on the LCD LINE1 or LINE2 randomly*/
+      for(u8tempi=0;u8tempi<5;u8tempi++)
+      {
+        if(u8Brickexsit[u8tempi]==0)
+        {
+          if(Randomnumber%2==0)
+          {
+            UserApp_CursorPosition[u8tempi]=LINE1_END_ADDR;
+            LCDMessage(UserApp_CursorPosition[u8tempi], u8Brick);
+          }
+          else if(Randomnumber%2!=0)
+          {
+            UserApp_CursorPosition[u8tempi]=LINE2_END_ADDR;
+            LCDMessage(UserApp_CursorPosition[u8tempi], u8Brick);
+          }
+          u8Brickexsit[u8tempi]=1;
+        }
+        
+      }
+      /*Display all the brick in the LCD at the same time almostly*/
+      for(u8tempj=0;u8tempj<5;u8tempj++)
+      {
+        if(u8Brickexsit[u8tempj]==1)
         {
           
-          BrickLine=2;
-          UserApp_CursorPosition2[counter3]=19;
-          LCDMessage(LINE2_START_ADDR+UserApp_CursorPosition2[counter3], "0");
-          counter3++;
-        }        
+          
+          LCDMessage(UserApp_CursorPosition[u8tempj],u8Brick);
+          UserApp_CursorPosition[u8tempj]--;
+          
+        }
       }
-      for(u8 m=0;m<counter2;m++)
+      /*If a brick hit the "man", game over*/ 
+      for(u8tempi=0;u8tempi<5;u8tempi++)
       {
-        UserApp_CursorPosition1[m]--;
-        LCDMessage(LINE1_START_ADDR+UserApp_CursorPosition1[m], "0");
+        if((UserApp_CursorPosition[u8tempi]==LINE1_START_ADDR+2 && flag3==1)||
+           (UserApp_CursorPosition[u8tempi]==LINE2_START_ADDR+2 && flag3==2))
+        {         
+          LCDCommand(LCD_CLEAR_CMD);
+          flag3=0;
+          flag=FALSE;
+          LedOn(RED);
+          UserApp_StateMachine = UserAppSM_GameOver;
+          PWMAudioOn(BUZZER1);        
+        }
+        
       }
-      for(u8 n=0;n<counter3;n++)
-      {
-        UserApp_CursorPosition2[n]--;
-        LCDMessage(LINE2_START_ADDR+UserApp_CursorPosition2[n], "0");
-      }
-      /*if(BrickLine==1)
-      {
-        LCDMessage(LINE1_START_ADDR+UserApp_CursorPosition1[counter2], "0"); 
-        UserApp_CursorPosition1[counter2]--;  
-      }
-      if(BrickLine==2)
-      {
-        LCDMessage(LINE2_START_ADDR+UserApp_CursorPosition2[counter3], "0"); 
-        UserApp_CursorPosition2[counter3]--;  
-      }*/
     }
+    /*If pressed BUTTON1, let the "man" move to LINE1*/
     if(WasButtonPressed(BUTTON1))
     {
       ButtonAcknowledge(BUTTON1);
-      //LCDCommand(LCD_CLEAR_CMD);
+      
       flag1=TRUE;
       flag2=FALSE;
-      flag3=FALSE;
-      LCDMessage(LINE1_START_ADDR+2, "8"); 
+      flag3=1;
+      LCDMessage(LINE1_START_ADDR+3, "8"); 
+      LCDMessage(LINE2_START_ADDR+3, " ");
     }
+    /*If pressed BUTTON2, let the "man" move to LINE2*/
     if(WasButtonPressed(BUTTON2))
     {
       ButtonAcknowledge(BUTTON2);
-      //LCDCommand(LCD_CLEAR_CMD);
+     
       flag1=FALSE;
       flag2=TRUE;
-      flag3=TRUE;
-      LCDMessage(LINE2_START_ADDR+2, "8"); 
+      flag3=2;
+      LCDMessage(LINE2_START_ADDR+3, "8"); 
+      LCDMessage(LINE1_START_ADDR+3, " "); 
     }
-    
-    /*if(UserApp_CursorPosition[j]+1==LINE2_START_ADDR+2)
-    {
-      if(flag3)
-      {
-        
-        flag3=FALSE;
-        flag=FALSE;
-        LedOn(RED);
-        
-        PWMAudioOn(BUZZER1);
-        LCDCommand(LCD_CLEAR_CMD);
-        LCDMessage(LINE1_START_ADDR+5, "Game over!"); 
-        LCDMessage(LINE2_START_ADDR, "Press BUTTON0 start");
-      }
-    }*/
   }
+  /*chack if any new ANT information is in the ANT buffer*/
+  if( AntReadData() )
+  {
+     /* New data message: check what it is */
+    if(G_eAntApiCurrentMessageClass == ANT_DATA)
+    {
+      
+       for(u8 i = 0; i < ANT_DATA_BYTES; i++)
+       {
+         au8DataContent[2 * i]     = HexToASCIICharUpper(G_au8AntApiCurrentData[i] / 16);
+         au8DataContent[2 * i + 1] = HexToASCIICharUpper(G_au8AntApiCurrentData[i] % 16);
+       }
+     
+     
+     
+    }
+    else if(G_eAntApiCurrentMessageClass == ANT_TICK)
+    {
+     /* A channel period has gone by: typically this is when new data should be queued to be sent */
+     for(u8 i = 0; i < ANT_DATA_BYTES; i++)
+     {
+       au8DataContent[2 * i]     = HexToASCIICharUpper(G_au8AntApiCurrentData[i] / 16);
+       au8DataContent[2 * i + 1] = HexToASCIICharUpper(G_au8AntApiCurrentData[i] % 16);
+     }
+     
+      /* Update the message counter */
+     
+        if(flag3==0)
+        {
+          au8TestMessage[6]=0;
+          au8TestMessage[7]=1;
+          flag3=2;
+          LedOn(WHITE);
+          AntQueueBroadcastMessage(au8TestMessage);
+        }
+         if(flag4==1)
+        {
+          au8TestMessage[7]=0;
+          flag4=0;
+          AntQueueBroadcastMessage(au8TestMessage);
+        }        
+    }   
+  } /* end AntReadData() */
+
 } /* end UserAppSM_Idle() */
      
-
+static void UserAppSM_GameOver(void)          
+{
+  static u32 u32Delay = 1000;
+  
+  if(u32Delay++ == 1000)
+  {
+     LCDMessage(LINE1_START_ADDR+5, "Game over!"); 
+     LCDMessage(LINE2_START_ADDR, "Press BUTTON0 start");
+     UserApp_StateMachine = UserAppSM_Idle;
+     u32Delay = 0;
+  }
+}
 /*-------------------------------------------------------------------------------------------------------------------*/
 /* Handle an error */
 static void UserAppSM_Error(void)          
